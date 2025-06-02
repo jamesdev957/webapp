@@ -1,0 +1,19 @@
+AWSTemplateFormatVersion: "2010-09-09"
+
+Description: template for creating vpc
+
+Resources:
+  AwsVpcDev:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: "10.0.0.0/16"
+      EnableDnsSupport: true
+      EnableDnsHostnames: true
+      Tags:
+        - Key: stack
+          Value: Banking
+  ipv6CidrBlock:
+    Type: AWS::EC2::VPCCidrBlock
+    Properties:
+      VpcId: !Ref AwsVpcDev
+      AmazonProvidedIpv6CidrBlock: true

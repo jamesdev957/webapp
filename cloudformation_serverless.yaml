@@ -1,0 +1,170 @@
+AWSTemplateFormatVersion: "2010-09-09"
+
+Description: CloudFormation to deploy EC2 instance with EC2 Instance Connect and an S3 bucket
+
+Parameters:
+  Environment:
+    Type: String
+    Default: dev
+    AllowedValues:
+      - dev
+      - prod
+      - test
+      - qa
+    Description: Environment for the resources (dev, prod, test)
+  S3BucketName:
+    Type: String
+    Default: s3bucket-balancestatus-0623
+    Description: Name of the S3 bucket to be created
+  LambdaRoleNameParamter:
+    Type: String
+    Description: Name of the lambda role iam
+  LambdaRuntimeParamter:
+    Type: String
+    Default: nodejs16.x
+    AllowedValues:
+      - nodejs16.x
+      - nodejs18.x
+    Description: Lamda run time
+  PathPart:
+    Type: String
+    Default: balancestatus3001
+    Description: Path part for the API Gateway resource
+  RestApi:
+    Type: String
+    Description: Name of the api
+
+Resources:
+  s3Bucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Ref S3BucketName
+      AccessControl: Private
+      Tags:
+        - Key: Environment
+          Value:
+            Fn::Sub: "${Environment}-${AWS::StackName}-${AWS::Region}"
+
+  IamRoleLambda:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - lambda.amazonaws.com
+            Action:
+              - "sts:AssumeRole"
+      Description: IAM role for S3 bucket access
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AmazonS3FullAccess
+      RoleName: !Ref LambdaRoleNameParamter
+      Tags:
+        - Key: Environment
+          Value:
+            Fn::Sub: "${Environment}-${AWS::StackName}-${AWS::Region}"
+
+  LambdaFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      Environment:
+        Variables:
+          S3_BUCKET: !Ref S3BucketName
+      Handler: index.handler
+      Role: !GetAtt IamRoleLambda.Arn
+      Code:
+        ZipFile: |
+          const AWS = require('aws-sdk');
+          const s3 = new AWS.S3();
+
+          exports.handler = async (event) => {
+            const bucket = process.env.S3_BUCKET;
+            const key = 'json.json';
+
+            if (!bucket || !key) {
+              return {
+                statusCode: 400,
+                body: JSON.stringify({ error: 'Missing bucket or key in event' }),
+              };
+            }
+
+            try {
+              const data = await s3.getObject({ Bucket: bucket, Key: key }).promise();
+              const content = data.Body.toString('utf-8');
+              const json = JSON.parse(content);
+
+              return {
+                statusCode: 200,
+                body: JSON.stringify(json),
+              };
+            } catch (error) {
+              return {
+                statusCode: 500,
+                body: JSON.stringify({ error: error.message }),
+              };
+            }
+          }
+      Runtime: nodejs16.x
+      Timeout: 30
+      MemorySize: 128
+      Tags:
+        - Key: Environment
+          Value:
+            Fn::Sub: "${Environment}-${AWS::StackName}-${AWS::Region}"
+
+  RestLambdaApiGateway:
+    Type: AWS::ApiGateway::RestApi
+    Properties:
+      Name: !Ref RestApi
+      Description: API Gateway for Lambda function
+      FailOnWarnings: true
+
+      Tags:
+        - Key: Environment
+          Value:
+            Fn::Sub: "${Environment}-${AWS::StackName}-${AWS::Region}"
+
+  ApiGatewayResource:
+    Type: AWS::ApiGateway::Resource
+    Properties:
+      ParentId: !GetAtt RestLambdaApiGateway.RootResourceId
+      PathPart: !Ref PathPart
+
+      RestApiId: !Ref RestLambdaApiGateway
+
+  ApiResourceMethod:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      AuthorizationType: NONE
+      HttpMethod: GET
+      MethodResponses:
+        - StatusCode: 200
+      ResourceId: !Ref ApiGatewayResource
+      RestApiId: !Ref RestLambdaApiGateway
+      Integration:
+        Type: AWS
+        IntegrationResponses:
+          - StatusCode: 200
+        IntegrationHttpMethod: POST
+        Uri:
+          Fn::Sub: "arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${LambdaFunction.Arn}/invocations"
+
+  ApiDeployment:
+    Type: AWS::ApiGateway::Deployment
+    Properties:
+      RestApiId: !Ref RestLambdaApiGateway
+      StageName: !Ref Environment
+      Description: Deployment for the Lambda API Gateway
+    DependsOn: ApiResourceMethod
+
+  ApiGatewayInvokePermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !Ref LambdaFunction
+      Principal: apigateway.amazonaws.com
+      SourceArn:
+        Fn::Sub: arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${RestLambdaApiGateway}/*/GET/balancestatus3001
+      SourceAccount: !Ref AWS::AccountId

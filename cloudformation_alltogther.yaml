@@ -1,0 +1,133 @@
+AWSTemplateFormatVersion: "2010-09-09"
+
+Description: Template using Resources, Parameters and Metadata
+
+Metadata: template metadata
+
+Parameters:
+  SubName:
+    Type: String
+    Default:
+      Fn::Sub: "${AWS::StackName}-${AWS::Region}"
+  Environment:
+    Type: String
+    Default: dev
+    AllowedValues:
+      - dev
+      - prod
+      - test
+    Description: Environment for the resources (dev, prod, test
+
+Globals:
+  Tags: &CommonTags
+    - Key: Environment
+      Value: dev
+    - Key: Project
+      Value: Banking
+    - Key: Owner
+      Value: James
+
+Resources:
+  Vpc:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: 10.0.0/16
+      EnableDnsSupport: true
+      EnableDnsHostnames: true
+      Tags:
+        - Key: VpcName
+          Value:
+            Fn::Sub: "${SubName}-BankingVPC"
+  SubnetEc2:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref Vpc
+      CidrBlock: 10.0.1.0/24
+      AvailabilityZone: !Select [0, !GetAZs ""]
+      MapPublicIpOnLaunch: true
+      Tags:
+        - Key: SubnetName
+          Value:
+            Fn::Sub: "${SubName}-SubnetForEc2"
+        - *CommonTags
+
+  InternetGateway:
+    Type: AWS::EC2::InternetGateway
+  AttachInternetGateway:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId: !Ref Vpc
+      InternetGatewayId: !Ref InternetGateway
+  PublicRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref Vpc
+      Tags:
+        - Key: RouteTableName
+          Value:
+            Fn::Sub: "${SubName}-PublicRouteTable"
+        - *CommonTags
+  PublicRoute:
+    Type: AWS::EC2::Route
+    DependsOn: AttachInternetGateway
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref InternetGateway
+  SubnetRouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref SubnetEc2
+      RouteTableId: !Ref PublicRouteTable
+  SecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Security group for EC2 instances
+      VpcId: !Ref Vpc
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          CidrIp: 0.0.0.0/#
+      Tags:
+        - Key: SecurityGroupName
+          Value:
+            Fn::Sub: "${SubName}-SecurityGroupForEc2"
+        - *CommonTags
+
+  SubnetS3:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref Vpc
+      CidrBlock: 10.0.2.0/24
+      AvailabilityZone: !Select [0, !GetAZs ""]
+      MapPublicIpOnLaunch: true
+      Tags:
+        - Key: SubnetName
+          Value:
+            Fn::Sub: "${SubName}-SubnetForEc2"
+        - *CommonTags
+
+  Ec2Instance:
+    Type: AWS::EC2::Instance
+    Properties:
+      InstanceType: t2.micro
+      ImageId: ami-0c55b159cbfafe1f0 # Replace with a valid AMI ID for your region
+      SubnetId: !Ref SubnetEc2
+      SecurityGroupIds:
+        - !Ref SecurityGroup
+      Tags:
+        - Key: Name
+          Value:
+            Fn::Sub: "${SubName}-Ec2Instance"
+        - *CommonTags
+
+  S3Bucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub "${SubName}-s3-bucket"
+      AccessControl: Private
+      Tags:
+        - Key: Name
+          Value: !Sub "${SubName}-S3Bucket"
+        - *CommonTags

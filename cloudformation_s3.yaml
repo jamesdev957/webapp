@@ -1,0 +1,147 @@
+AWSTemplateFormatVersion: "2010-09-09"
+
+Description: CloudFormation to deploy EC2 instance with EC2 Instance Connect and an S3 bucket
+
+Metadata:
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+      - Label:
+          default: "Network Configuration"
+        Parameters:
+          - AwsVpcDev
+          - MyInternetGateway
+          - AttachInternetGateway
+          - PublicRouteTable
+          - PublicRoute
+          - SubnetRouteTableAssociation
+          - MySecurityGroup
+          - AttachInternetGateway
+          - EC2PublicIP
+      - Label:
+          default: "Storage"
+        Parameters:
+          - AwsS3BucketDev
+      - Label:
+          default: "Servers"
+        Parameters:
+          - AwsEc2InstanceDev
+    ParameterLabels:
+      AwsS3BucketDev:
+        default: "S3 Bucket Name"
+      InstanceEc2ImageId:
+        default: "Ec2 Image Id"
+
+Parameters:
+  InstanceEc2ImageId:
+    Type: String
+    Default: ami-0953476d60561c955
+    AllowedValues:
+      - ami-0953476d60561c955
+      - ami-d20657ad
+  InstanceEc2Type:
+    Type: String
+    Default: t2.micro
+    Description: EC2 instance type
+    AllowedValues:
+      - t2.micro
+      - t2.small
+      - t2.nano
+  S3BucketName:
+    Type: String
+    Default: jamess3dev
+
+Resources:
+  # VPC
+  AwsVpcDev:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: "10.0.0.0/16"
+      EnableDnsSupport: true
+      EnableDnsHostnames: true
+      Tags:
+        - Key: Name
+          Value: BankingVPC
+
+  # Internet Gateway + Attachment
+  MyInternetGateway:
+    Type: AWS::EC2::InternetGateway
+
+  AttachInternetGateway:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId: !Ref AwsVpcDev
+      InternetGatewayId: !Ref MyInternetGateway
+
+  # Public Subnet
+  MySubnet:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref AwsVpcDev
+      CidrBlock: "10.0.1.0/24"
+      MapPublicIpOnLaunch: true
+      AvailabilityZone: !Select [0, !GetAZs ""]
+      Tags:
+        - Key: Name
+          Value: SubnetForEc2
+
+  # Route Table for public subnet
+  PublicRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref AwsVpcDev
+
+  # Route to Internet
+  PublicRoute:
+    Type: AWS::EC2::Route
+    DependsOn: AttachInternetGateway
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref MyInternetGateway
+
+  # Associate Route Table with Subnet
+  SubnetRouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref MySubnet
+      RouteTableId: !Ref PublicRouteTable
+
+  # Security Group (allows SSH)
+  MySecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Allow SSH from your IP
+      VpcId: !Ref AwsVpcDev
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          CidrIp: 0.0.0.0/0 # Replace with your IP for production
+
+  # EC2 Instance with EC2 Instance Connect enabled
+  AwsEc2InstanceDev:
+    Type: AWS::EC2::Instance
+    Properties:
+      ImageId: !Ref InstanceEc2ImageId
+      InstanceType: !Ref InstanceEc2Type
+      SubnetId: !Ref MySubnet
+      SecurityGroupIds:
+        - !Ref MySecurityGroup
+      Tags:
+        - Key: Name
+          Value: !Sub "${AWS::StackName}-ec2"
+      # KeyName is omitted to allow EC2 Instance Connect
+
+  # S3 Bucket
+  AwsS3BucketDev:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub "${S3BucketName}-${AWS::Region}-${AWS::AccountId}"
+      Tags:
+        - Key: Name
+          Value: !Sub "${AWS::StackName}-s3"
+
+Outputs:
+  EC2PublicIP:
+    Description: Public IP of the EC2 instance
+    Value: !GetAtt AwsEc2InstanceDev.PublicIp

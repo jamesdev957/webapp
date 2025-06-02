@@ -1,0 +1,26 @@
+{
+  "accountHolder": {
+    "fullName": "John Doe",
+    "dateOfBirth": "1985-06-15",
+    "address": {
+      "street": "123 Main St",
+      "city": "Anytown",
+      "state": "CA",
+      "zipCode": "90210",
+      "country": "USA"
+    }
+  },
+  "accountDetails": {
+    "accountNumber": "1234567890",
+    "accountType": "Checking",
+    "branch": "Anytown Central",
+    "currency": "USD",
+    "balance": 15234.56,
+    "status": "Active",
+    "openedDate": "2010-04-01"
+  },
+  "contact": {
+    "email": "john.doe@example.com",
+    "phone": "+1-555-123-4567"
+  }
+}
